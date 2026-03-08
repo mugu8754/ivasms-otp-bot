@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ivasms-otp-telegram-bot
+    runtime: python
+    pythonVersion: 3.9
+    plan: free
+    
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    startCommand: python bot.py
+    
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: IVASMS_EMAIL
+        sync: false
+      - key: IVASMS_PASSWORD
+        sync: false
+    
+    autoDeploy: true
