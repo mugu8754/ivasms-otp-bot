@@ -1,6 +1,0 @@
-python-telegram-bot==20.3
-selenium==4.15.2
-beautifulsoup4==4.12.2
-requests==2.31.0
-python-dotenv==1.0.0
-webdriver-manager==4.0.1
