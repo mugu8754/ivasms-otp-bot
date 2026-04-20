@@ -1,86 +1,75 @@
-import sys
+from pyrogram import Client, enums
+from asyncio import Lock
 
-if sys.platform != "win32":
-    try:
-        import uvloop
-        uvloop.install()
-    except ImportError:
-        pass
+from .. import LOGGER
+from .config_manager import Config
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from asyncio import Lock, new_event_loop, set_event_loop
-from logging import (
-    getLogger,
-    FileHandler,
-    StreamHandler,
-    INFO,
-    basicConfig,
-    WARNING,
-    ERROR,
-)
-from sabnzbdapi import SabnzbdClient
-from time import time
-from os import cpu_count
 
-getLogger("requests").setLevel(WARNING)
-getLogger("urllib3").setLevel(WARNING)
-getLogger("pyrogram").setLevel(ERROR)
-getLogger("httpx").setLevel(WARNING)
-getLogger("pymongo").setLevel(WARNING)
-getLogger("aiohttp").setLevel(WARNING)
+class TgClient:
+    _lock = Lock()
+    bot = None
+    user = None
+    NAME = ""
+    ID = 0
+    IS_PREMIUM_USER = False
+    MAX_SPLIT_SIZE = 2097152000
 
-bot_start_time = time()
+    @classmethod
+    async def start_bot(cls):
+        LOGGER.info("Creating client from BOT_TOKEN")
+        cls.ID = Config.BOT_TOKEN.split(":", 1)[0]
+        cls.bot = Client(
+            cls.ID,
+            Config.TELEGRAM_API,
+            Config.TELEGRAM_HASH,
+            proxy=Config.TG_PROXY,
+            bot_token=Config.BOT_TOKEN,
+            workdir="/app",
+            parse_mode=enums.ParseMode.HTML,
+            max_concurrent_transmissions=10,
+            sleep_threshold=0,
+        )
+        await cls.bot.start()
+        cls.NAME = cls.bot.me.username
 
-bot_loop = new_event_loop()
-set_event_loop(bot_loop)
+    @classmethod
+    async def start_user(cls):
+        if Config.USER_SESSION_STRING:
+            LOGGER.info("Creating client from USER_SESSION_STRING")
+            try:
+                cls.user = Client(
+                    "user",
+                    Config.TELEGRAM_API,
+                    Config.TELEGRAM_HASH,
+                    proxy=Config.TG_PROXY,
+                    session_string=Config.USER_SESSION_STRING,
+                    workdir="/app",
+                    parse_mode=enums.ParseMode.HTML,
+                    sleep_threshold=60,
+                    max_concurrent_transmissions=10,
+                )
+                await cls.user.start()
+                cls.IS_PREMIUM_USER = cls.user.me.is_premium
+                if cls.IS_PREMIUM_USER:
+                    cls.MAX_SPLIT_SIZE = 4194304000
+            except Exception as e:
+                LOGGER.error(f"Failed to start client from USER_SESSION_STRING. {e}")
+                cls.IS_PREMIUM_USER = False
+                cls.user = None
 
-basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[FileHandler("log.txt"), StreamHandler()],
-    level=INFO,
-)
+    @classmethod
+    async def stop(cls):
+        async with cls._lock:
+            if cls.bot:
+                await cls.bot.stop()
+            if cls.user:
+                await cls.user.stop()
+            LOGGER.info("Client(s) stopped")
 
-LOGGER = getLogger(__name__)
-cpu_no = cpu_count()
-threads = max(1, cpu_no // 2)
-cores = ",".join(str(i) for i in reversed(range(threads)))
-
-DOWNLOAD_DIR = "/app/downloads/"
-intervals = {"status": {}, "qb": "", "jd": "", "nzb": "", "stopAll": False}
-qb_torrents = {}
-jd_downloads = {}
-nzb_jobs = {}
-user_data = {}
-aria2_options = {}
-qbit_options = {}
-nzb_options = {}
-queued_dl = {}
-queued_up = {}
-status_dict = {}
-task_dict = {}
-rss_dict = {}
-auth_chats = {}
-excluded_extensions = ["aria2", "!qB"]
-included_extensions = []
-drives_names = []
-drives_ids = []
-index_urls = []
-sudo_users = []
-non_queued_dl = set()
-non_queued_up = set()
-multi_tags = set()
-task_dict_lock = Lock()
-queue_dict_lock = Lock()
-qb_listener_lock = Lock()
-nzb_listener_lock = Lock()
-jd_listener_lock = Lock()
-cpu_eater_lock = Lock()
-same_directory_lock = Lock()
-
-sabnzbd_client = SabnzbdClient(
-    host="http://localhost",
-    api_key="mltb",
-    port="8070",
-)
-
-scheduler = AsyncIOScheduler(event_loop=bot_loop)
+    @classmethod
+    async def reload(cls):
+        async with cls._lock:
+            await cls.bot.restart()
+            if cls.user:
+                await cls.user.restart()
+            LOGGER.info("Client(s) restarted")
